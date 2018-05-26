@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>netcoreapp2.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <UserSecretsId>CorpinatorBot</UserSecretsId>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Discord.Net" Version="1.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Configuration" Version="2.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.AzureKeyVault" Version="2.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="2.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="2.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="2.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="2.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="2.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="2.0.2" />
+        <PackageReference Include="Microsoft.IdentityModel.Clients.ActiveDirectory" Version="3.19.6" />
+        <PackageReference Include="WindowsAzure.Storage" Version="9.2.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="appsettings.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
+</Project>

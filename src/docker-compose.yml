@@ -1,0 +1,8 @@
+version: '3.4'
+
+services:
+  corpinatorbot:
+    image: ${DOCKER_REGISTRY}corpinatorbot
+    build:
+      context: .
+      dockerfile: CorpinatorBot/Dockerfile
