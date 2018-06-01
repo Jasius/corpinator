@@ -44,8 +44,6 @@ namespace CorpinatorBot
             await _discordClient.StartAsync();
 
             //start rank check timer
-            //start command handler
-            //make sure we have ranks
         }
 
         public async Task Stop()
@@ -100,7 +98,7 @@ namespace CorpinatorBot
                     PartitionKey = "config",
                     RowKey = guildId,
                     Prefix = "!",
-                    RequiresOrginization = false,
+                    RequiresOrganization = false,
                     Organization = string.Empty,
                     RoleId = default
                 };

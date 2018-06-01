@@ -6,7 +6,7 @@ namespace CorpinatorBot
     {
         public string Prefix { get; set; }
         public string RoleId { get; set; }
-        public bool RequiresOrginization { get; set; }
+        public bool RequiresOrganization { get; set; }
         public string Organization { get; set; }
     }
 }
