@@ -8,7 +8,6 @@
         public string AkvVault { get; set; }
         public string TableStorageConnectionString { get; set; }
         public string DeviceAuthAppId { get; set; }
-        public object AadTennant { get; set; }
-        public string Ceo { get; set; }
+        public object AadTenant { get; set; }
     }
 }

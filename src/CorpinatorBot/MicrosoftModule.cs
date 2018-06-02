@@ -50,7 +50,7 @@ namespace CorpinatorBot
 
             var verification = new Verification { PartitionKey = guildId, RowKey = userId };
 
-            var authContext = new AuthenticationContext($"https://login.microsoftonline.com/{_secretsConfig.AadTennant}");
+            var authContext = new AuthenticationContext($"https://login.microsoftonline.com/{_secretsConfig.AadTenant}");
             var code = await authContext.AcquireDeviceCodeAsync("https://graph.microsoft.com", _secretsConfig.DeviceAuthAppId);
 
             var dmChannel = await Context.User.GetOrCreateDMChannelAsync();
