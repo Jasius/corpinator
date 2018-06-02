@@ -79,7 +79,7 @@ namespace CorpinatorBot
                     return;
                 }
 
-                if(result.UserInfo.DisplayableId.Substring(1,1) == "-")
+                if(result.UserInfo.DisplayableId.Substring(1,1) == "-" && result.UserInfo.DisplayableId.Substring(0, 2) != "t-")
                 {
                     await dmChannel.SendMessageAsync($"Verification requires that you be a full time Microsoft employee.");
                     return;
@@ -97,6 +97,11 @@ namespace CorpinatorBot
                 await dmChannel.SendMessageAsync($"Thanks for validating your status with Microsoft. You can unlink your accounts at any time with the `{Context.Configuration.Prefix}microsoft leave` command.");
                 var role = Context.Guild.Roles.SingleOrDefault(a => a.Id == ulong.Parse(Context.Configuration.RoleId));
                 await guildUser.AddRoleAsync(role);
+            }
+            catch(AdalServiceException ex) when (ex.ErrorCode == "code_expired")
+            {
+                _logger.LogInformation($"Code expired for {Context.User.Username}#{Context.User.Discriminator}");
+                await dmChannel.SendMessageAsync("Your code has expired.");
             }
             catch (Exception ex)
             {

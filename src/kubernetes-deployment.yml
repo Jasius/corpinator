@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: corpinator
-        image: cisien/corpinator:2
+        image: cisien/corpinator:3
         imagePullPolicy: Always
         resources:
           limits:
