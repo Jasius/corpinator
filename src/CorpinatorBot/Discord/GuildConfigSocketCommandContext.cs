@@ -1,7 +1,8 @@
-﻿using Discord.Commands;
+﻿using CorpinatorBot.ConfigModels;
+using Discord.Commands;
 using Discord.WebSocket;
 
-namespace CorpinatorBot
+namespace CorpinatorBot.Discord
 {
     public class GuildConfigSocketCommandContext : SocketCommandContext
     {

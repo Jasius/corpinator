@@ -1,9 +1,9 @@
 ﻿using Microsoft.WindowsAzure.Storage.Table;
 using System;
 
-namespace CorpinatorBot.TableModels
+namespace CorpinatorBot.VerificationModels
 {
-    class Verification : TableEntity
+    public class Verification : TableEntity
     {
         public Guid CorpUserId { get; set; }
         public string Alias { get; set; }

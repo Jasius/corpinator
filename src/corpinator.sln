@@ -5,8 +5,6 @@ VisualStudioVersion = 15.0.26124.0
 MinimumVisualStudioVersion = 15.0.26124.0
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CorpinatorBot", "CorpinatorBot\CorpinatorBot.csproj", "{AA5003F6-EF9B-472F-B2E8-35F48DEB808D}"
 EndProject
-Project("{E53339B2-1760-4266-BCC7-CA923CBCF16C}") = "docker-compose", "docker-compose.dcproj", "{D3FB7E68-BAE4-410D-ACB6-25FF21182533}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -17,10 +15,6 @@ Global
 		{AA5003F6-EF9B-472F-B2E8-35F48DEB808D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AA5003F6-EF9B-472F-B2E8-35F48DEB808D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AA5003F6-EF9B-472F-B2E8-35F48DEB808D}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D3FB7E68-BAE4-410D-ACB6-25FF21182533}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D3FB7E68-BAE4-410D-ACB6-25FF21182533}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D3FB7E68-BAE4-410D-ACB6-25FF21182533}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D3FB7E68-BAE4-410D-ACB6-25FF21182533}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

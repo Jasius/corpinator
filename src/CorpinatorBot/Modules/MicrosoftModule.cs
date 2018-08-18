@@ -1,33 +1,36 @@
-﻿using CorpinatorBot.TableModels;
+﻿using CorpinatorBot.ConfigModels;
+using CorpinatorBot.Discord;
+using CorpinatorBot.Services;
+using CorpinatorBot.VerificationModels;
 using Discord;
 using Discord.Commands;
 using Discord.Net;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
-using Microsoft.Graph;
-using Microsoft.IdentityModel.Clients.ActiveDirectory;
 using Microsoft.WindowsAzure.Storage.Table;
 using Newtonsoft.Json;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace CorpinatorBot
+namespace CorpinatorBot.Modules
 {
     [Group("microsoft"), Alias("teamxbox")]
     public class MicrosoftModule : ModuleBase<GuildConfigSocketCommandContext>
     {
-        private CloudTable _verificationTable;
-        private CloudTable _configurationTable;
-        private BotSecretsConfig _secretsConfig;
-        private ILogger<MicrosoftModule> _logger;
+        private readonly CloudTable _verificationTable;
+        private readonly CloudTable _configurationTable;
+        private readonly BotSecretsConfig _secretsConfig;
+        private readonly ILogger<MicrosoftModule> _logger;
+        private readonly IVerificationService _verificationService;
 
-        public MicrosoftModule(CloudTableClient tableClient, BotSecretsConfig secretsConfig, ILogger<MicrosoftModule> logger)
+        public MicrosoftModule(CloudTableClient tableClient, BotSecretsConfig secretsConfig, ILogger<MicrosoftModule> logger, IVerificationService verificationService)
         {
             _verificationTable = tableClient.GetTableReference("verifications");
             _configurationTable = tableClient.GetTableReference("configuration");
             _secretsConfig = secretsConfig;
             _logger = logger;
+            _verificationService = verificationService;
         }
 
         [Command("verify", RunMode = RunMode.Async)]
@@ -37,10 +40,10 @@ namespace CorpinatorBot
             {
                 return;
             }
-
-            var userId = guildUser.Id.ToString();
+            
+            var discordId = guildUser.Id.ToString();
             var guildId = Context.Guild.Id.ToString();
-            var verificationResult = await _verificationTable.ExecuteAsync(TableOperation.Retrieve<Verification>(guildId, userId));
+            var verificationResult = await _verificationTable.ExecuteAsync(TableOperation.Retrieve<Verification>(guildId, discordId));
 
             if (verificationResult.HttpStatusCode == 200)
             {
@@ -48,17 +51,15 @@ namespace CorpinatorBot
                 return;
             }
 
-            var verification = new Verification { PartitionKey = guildId, RowKey = userId };
-
-            var authContext = new AuthenticationContext($"https://login.microsoftonline.com/{_secretsConfig.AadTenant}");
-            var code = await authContext.AcquireDeviceCodeAsync("https://graph.microsoft.com", _secretsConfig.DeviceAuthAppId);
+            var verification = new Verification { PartitionKey = guildId, RowKey = discordId };
+            var code = await _verificationService.GetCode();
 
             var dmChannel = await Context.User.GetOrCreateDMChannelAsync();
             try
             {
                 await dmChannel.SendMessageAsync("After you authenticate with your corp account, we will collect and store your department, alias, " +
-                " and your corp user id. This data will only be used to validate your current status for the purpose of managing the verified role on this server.");
-                await dmChannel.SendMessageAsync(code.Message);
+                    "and your corp user id. This data will only be used to validate your current status for the purpose of managing the verified role on this server.");
+                await dmChannel.SendMessageAsync(code);
                 await ReplyAsync($"{Context.User.Mention}, check your DMs for instructions.");
             }
             catch (HttpException ex) when (ex.DiscordCode == 50007)
@@ -69,28 +70,27 @@ namespace CorpinatorBot
 
             try
             {
-                var result = await authContext.AcquireTokenByDeviceCodeAsync(code);
+                await _verificationService.VerifyCode();
+                await _verificationService.LoadUserDetails(Context.Configuration.Organization);
 
-                var (inOrg, alias, department) = await GetUserDetails(result, Context.Configuration.Organization);
-
-                if (Context.Configuration.RequiresOrganization && !inOrg)
+                if (Context.Configuration.RequiresOrganization && !_verificationService.Organization.Equals(Context.Configuration.Organization))
                 {
                     await dmChannel.SendMessageAsync($"We see that you are a current Microsoft employee, however, this server requires that you be in a specific org in order to receive the validated status.");
                     return;
                 }
 
-                if(result.UserInfo.DisplayableId.Substring(1,1) == "-" && result.UserInfo.DisplayableId.Substring(0, 2) != "t-")
+                if (!Context.Configuration.AllowedUserTypesFlag.HasFlag(_verificationService.UserType))
                 {
-                    await dmChannel.SendMessageAsync($"Verification requires that you be a full time Microsoft employee.");
+                    await dmChannel.SendMessageAsync($"Verification requires that you be one of the following: {Context.Configuration.AllowedUserTypesFlag}");
                     return;
                 }
 
-                var corpUserId = Guid.Parse(result.UserInfo.UniqueId);
+                var corpUserId = Guid.Parse(_verificationService.UserId);
 
                 verification.CorpUserId = corpUserId;
-                verification.Alias = alias;
+                verification.Alias = _verificationService.Alias;
                 verification.ValidatedOn = DateTimeOffset.UtcNow;
-                verification.Department = department;
+                verification.Department = _verificationService.Department;
 
                 var mergeResult = await _verificationTable.ExecuteAsync(TableOperation.InsertOrMerge(verification));
 
@@ -98,7 +98,7 @@ namespace CorpinatorBot
                 var role = Context.Guild.Roles.SingleOrDefault(a => a.Id == ulong.Parse(Context.Configuration.RoleId));
                 await guildUser.AddRoleAsync(role);
             }
-            catch(AdalServiceException ex) when (ex.ErrorCode == "code_expired")
+            catch (VerificationException ex) when (ex.ErrorCode == "code_expired")
             {
                 _logger.LogInformation($"Code expired for {Context.User.Username}#{Context.User.Discriminator}");
                 await dmChannel.SendMessageAsync("Your code has expired.");
@@ -110,38 +110,6 @@ namespace CorpinatorBot
             }
         }
 
-        private async Task<(bool isInOrg, string alias, string department)> GetUserDetails(AuthenticationResult result, string reportsTo)
-        {
-            var graph = new GraphServiceClient("https://graph.microsoft.com/beta", new GraphAuthenticationProvider(result));
-            var user = await graph.Me.Request().GetAsync();
-            var currentManager = result.UserInfo.UniqueId;
-
-            if(string.IsNullOrWhiteSpace(reportsTo)) {
-            return (false, user.MailNickname, user.Department);
-            }
-
-            while (true)
-            {
-                DirectoryObject manager;
-                try
-                {
-                    manager = await graph.Users[currentManager].Manager.Request().GetAsync();
-                    currentManager = manager.Id;
-                    var tlmUser = await graph.Users[currentManager].Request().GetAsync();
-                    
-                    if (tlmUser.MailNickname.Equals(reportsTo, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return (true, user.MailNickname, user.Department);
-                    }
-                }
-                catch (ServiceException ex) when (ex.Error.Code == "Request_ResourceNotFound" && ex.Error.Message.Contains("manager"))
-                {
-                    break;
-                }
-            }
-
-            return (false, user.MailNickname, user.Department);            
-        }
 
         [Command("leave")]
         public async Task Leave()
@@ -177,10 +145,44 @@ namespace CorpinatorBot
             }
         }
 
+        [Command("who"), RequireUserPermission(GuildPermission.Administrator)]
+        public async Task Who(IUser user)
+        {
+            var userId = user.Id.ToString();
+            var guildId = Context.Guild.Id.ToString();
+
+            var result = await _verificationTable.ExecuteAsync(TableOperation.Retrieve<Verification>(guildId, userId));
+
+            if(result.HttpStatusCode != 200)
+            {
+                await ReplyAsync("User is not verified");
+                return;
+            }
+
+            var verification = result.Result as Verification;
+
+            var dmChannel = await Context.User.GetOrCreateDMChannelAsync();
+            await dmChannel.SendMessageAsync($"{user.Username}#{user.Discriminator} is verified as {verification.Alias}.");
+        }
+
+        [Command("setusertypes"), RequireOwner]
+        public async Task ConfigureUserTypes(params UserType[] userTypes)
+        {
+            UserType appliedUserTypes = UserType.None;
+            foreach(var userType in userTypes)
+            {
+                appliedUserTypes |= userType;
+            }
+
+            Context.Configuration.AllowedUserTypesFlag = appliedUserTypes;
+            await _configurationTable.ExecuteAsync(TableOperation.InsertOrReplace(Context.Configuration));
+            await ReplyAsync($"allowed user types are now set to {Context.Configuration.AllowedUserTypesFlag}");
+        }
+
         [Command("setrole"), RequireOwner]
         public async Task ConfigureRole(IRole role)
         {
-            var guildRole = Context.Guild.Roles.SingleOrDefault(a => a.Id == role.Id);
+            SocketRole guildRole = Context.Guild.Roles.SingleOrDefault(a => a.Id == role.Id);
 
             if (guildRole == null)
             {
@@ -224,20 +226,20 @@ namespace CorpinatorBot
         [Command("settings"), RequireOwner]
         public async Task Settings()
         {
-            var settings = JsonConvert.SerializeObject(Context.Configuration, Formatting.Indented);
+            string settings = JsonConvert.SerializeObject(Context.Configuration, Formatting.Indented);
             await ReplyAsync(Format.Code(settings));
         }
 
         [Command("query"), RequireOwner]
         public async Task List(IUser user)
         {
-            var userId = user.Id.ToString();
-            var guildId = Context.Guild.Id.ToString();
-            var verificationResult = await _verificationTable.ExecuteAsync(TableOperation.Retrieve<Verification>(guildId, userId));
+            string userId = user.Id.ToString();
+            string guildId = Context.Guild.Id.ToString();
+            TableResult verificationResult = await _verificationTable.ExecuteAsync(TableOperation.Retrieve<Verification>(guildId, userId));
 
             if (verificationResult.HttpStatusCode == 200)
             {
-                var userJson = JsonConvert.SerializeObject(verificationResult.Result, Formatting.Indented);
+                string userJson = JsonConvert.SerializeObject(verificationResult.Result, Formatting.Indented);
                 await ReplyAsync(userJson);
             }
             else
@@ -255,8 +257,8 @@ namespace CorpinatorBot
                 return;
             }
 
-            var userId = guildUser.Id.ToString();
-            var guildId = Context.Guild.Id.ToString();
+            string userId = guildUser.Id.ToString();
+            string guildId = Context.Guild.Id.ToString();
             var verificationResult = await _verificationTable.ExecuteAsync(TableOperation.Retrieve<Verification>(guildId, userId));
 
             if (verificationResult.HttpStatusCode == 200)
@@ -270,7 +272,7 @@ namespace CorpinatorBot
                 }
                 else
                 {
-                    await ReplyAsync($"Unable to remove verification for {user.Username}#{user.DiscriminatorValue}.");
+                    await ReplyAsync($"Unable to remove verification for {user.Username}#{user.Discriminator}.");
                 }
             }
             else

@@ -1,79 +1,103 @@
-﻿using Discord.WebSocket;
+﻿using CorpinatorBot.ConfigModels;
+using CorpinatorBot.Discord;
+using CorpinatorBot.Services;
+using Discord;
+using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
-using System;
-using System.Diagnostics;
-using System.Threading;
+using Microsoft.WindowsAzure.Storage.Table;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace CorpinatorBot
 {
     public class Program
     {
-        private static CancellationTokenSource _cts;
-        static async Task Main(string[] args)
+        private static async Task Main(string[] args)
         {
-            try
+            IHostBuilder hostBuilder = new HostBuilder()
+            .ConfigureHostConfiguration(config =>
             {
-                _cts = new CancellationTokenSource();
-                Console.CancelKeyPress += OnCancelKeyPress;
+                config.AddEnvironmentVariables("BOTHOSTING:");
+            })
+            .ConfigureAppConfiguration((context, config) =>
+            {
+                config.SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json", false)
+                .AddJsonFile($"appsettings.{context.HostingEnvironment.EnvironmentName}.json", true)
+                .AddEnvironmentVariables();
 
-                var configBuilder = new ConfigurationBuilder()
-                    .AddJsonFile("appsettings.json", true)
-                    .AddEnvironmentVariables();
-
-
-                if (Debugger.IsAttached) //todo: detect somehow collect hosting environment
+                if (context.HostingEnvironment.IsDevelopment())
                 {
-                    configBuilder.AddUserSecrets("CorpinatorBot");
+                    config.AddUserSecrets("CorpinatorBot");
                 }
 
-                var builtConfig = configBuilder.Build();
-                var secrets = new BotSecretsConfig();
-                
+                BotSecretsConfig secrets = new BotSecretsConfig();
+                IConfigurationRoot builtConfig;
+                if (context.HostingEnvironment.IsProduction())
+                {
+                    builtConfig = config.Build();
+                    builtConfig.Bind(nameof(BotSecretsConfig), secrets);
+                    config.AddAzureKeyVault(secrets.AkvVault, secrets.AkvClientId, secrets.AkvSecret);
+                }
+
+                // build and bind a second time to populate secrets found in AKV
+                builtConfig = config.Build();
                 builtConfig.Bind(nameof(BotSecretsConfig), secrets);
-                configBuilder.AddAzureKeyVault(secrets.AkvVault, secrets.AkvClientId, secrets.AkvSecret);
-                
-                builtConfig = configBuilder.Build();
-                builtConfig.Bind(nameof(BotSecretsConfig), secrets);
 
-                var storageClient = CloudStorageAccount.Parse(secrets.TableStorageConnectionString);
-                var tableClient = storageClient.CreateCloudTableClient();
-
-                var verificationsReference = tableClient.GetTableReference("verifications");
-                await verificationsReference.CreateIfNotExistsAsync();
-                var configurationReference = tableClient.GetTableReference("configuration");
-                await configurationReference.CreateIfNotExistsAsync();
-
-                var services = new ServiceCollection();
-                services.AddSingleton(tableClient);
-
-                var host = new DiscordBotHost()
-                    .WithConfiguration(configBuilder)
-                    .WithBinding<DiscordSocketConfig>()
-                    .WithBinding<BotSecretsConfig>()
-                    .WithLogging(a => a.AddConsole().AddDebug())
-                    .WithServices(services)
-                    .WithDiscordBot<DiscordBot>();
-
-                await host.Run(_cts.Token);
-            }
-            catch (Exception ex)
+                context.Properties.Add("botSecrets", secrets);
+            })
+            .ConfigureLogging((context, logging) =>
             {
-                Console.WriteLine(ex);
-                if(Debugger.IsAttached) {
-                    Console.ReadKey();
+                logging.AddConsole();
+                if (context.HostingEnvironment.IsDevelopment())
+                {
+                    logging.AddDebug();
                 }
-                Environment.Exit(ex.HResult);
-            }
+            })
+            .ConfigureServices((context, services) =>
+            {
+                BotSecretsConfig secrets = context.Properties["botSecrets"] as BotSecretsConfig;
+                var socketConfig = new DiscordSocketConfig();
+                context.Configuration.Bind(socketConfig);
+                services.AddSingleton(socketConfig);
+
+                CloudTableClient tableClient = InitializeStorage(secrets).ConfigureAwait(false).GetAwaiter().GetResult();
+                services.AddSingleton(tableClient);
+                services.AddSingleton(secrets);
+                RegisterDiscordClient(services, secrets, socketConfig);
+
+                services.AddTransient<IVerificationService, AzureVerificationService>();
+
+                services.AddHostedService<DiscordBot>();
+            })
+            .UseConsoleLifetime();
+
+            await hostBuilder.RunConsoleAsync();
+
         }
 
-        private static void OnCancelKeyPress(object sender, ConsoleCancelEventArgs e)
+        private static void RegisterDiscordClient(IServiceCollection services, BotSecretsConfig config, DiscordSocketConfig socketConfig)
         {
-            e.Cancel = true;
-            _cts.Cancel(true);
+            DiscordSocketClient client = new DiscordSocketClient(socketConfig);
+
+            services.AddSingleton<IDiscordClient>(client);
+            services.AddSingleton(client);
+        }
+
+        private static async Task<CloudTableClient> InitializeStorage(BotSecretsConfig secrets)
+        {
+            CloudStorageAccount storageClient = CloudStorageAccount.Parse(secrets.TableStorageConnectionString);
+            CloudTableClient tableClient = storageClient.CreateCloudTableClient();
+
+            CloudTable verificationsReference = tableClient.GetTableReference("verifications");
+            await verificationsReference.CreateIfNotExistsAsync();
+            CloudTable configurationReference = tableClient.GetTableReference("configuration");
+            await configurationReference.CreateIfNotExistsAsync();
+            return tableClient;
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿namespace CorpinatorBot
+﻿namespace CorpinatorBot.ConfigModels
 {
     public class BotSecretsConfig
     {
